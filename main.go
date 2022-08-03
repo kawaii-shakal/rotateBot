@@ -46,7 +46,7 @@ func main() {
 }
 
 func scanDB(g string) string {
-	fileDB, err := os.Open("DB")
+	fileDB, err := os.Open("/root/DB")
 	if err != nil {
 		log.Fatal(err)
 	}
