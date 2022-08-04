@@ -18,10 +18,11 @@ var (
 )
 
 type Config struct {
-	Token  string `json:"TokenTG"`
-	Debug  bool   `json:"DebugMode"`
-	DB     string `json:"DBpatch"`
-	Sctipt string `json:"SctiptPatch"`
+	Token   string  `json:"TokenTG"`
+	Debug   bool    `json:"DebugMode"`
+	DB      string  `json:"DBpatch"`
+	Script  string  `json:"ScriptPatch"`
+	UserACL []int64 `json:"UserAcl"`
 }
 
 func init() {
@@ -59,11 +60,17 @@ func main() {
 	for update := range updates {
 		if update.Message != nil {
 			rtArg, err := scanDB(update.Message.Text, config.DB)
-			if err != nil {
+			switch {
+			case err != nil:
+				log.Println("нет такого порта")
+				err = nil
+				continue
+			case false == checkACL(update.Message.From.ID, config.UserACL):
+				log.Println("не авторизован")
 				continue
 			}
 
-			cmd := exec.Command(config.Sctipt, rtArg)
+			cmd := exec.Command(config.Script, rtArg)
 			result, err := cmd.Output()
 			if err != nil {
 				fmt.Println(err.Error())
@@ -76,6 +83,16 @@ func main() {
 			bot.Send(msg)
 		}
 	}
+}
+func checkACL(i int64, users []int64) bool {
+	result := false
+	for _, a := range users {
+		if a == i {
+			log.Println("совпадение с id: ", i)
+			result = true
+		}
+	}
+	return result
 }
 
 func scanDB(g string, DB string) (string, error) {
