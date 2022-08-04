@@ -2,6 +2,9 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"log"
@@ -10,13 +13,41 @@ import (
 	"strings"
 )
 
+var (
+	configPath string
+)
+
+type Config struct {
+	Token  string `json:"TokenTG"`
+	Debug  bool   `json:"DebugMode"`
+	DB     string `json:"DBpatch"`
+	Sctipt string `json:"SctiptPatch"`
+}
+
+func init() {
+	// принимаем на входе флаг -c
+	flag.StringVar(&configPath, "c", "/etc/rotateBot/config", "config")
+	flag.Parse()
+}
+
 func main() {
-	bot, err := tgbotapi.NewBotAPI("5337635051:AAEl0yMI14DOL-qbMBTxPe58pDIKe7HTW7U")
+	//инициализация чтения конфига
+	var config Config
+	data, err := os.ReadFile(configPath)
 	if err != nil {
-		log.Panic(err)
+		log.Fatal("невозможно прочитать конфиг")
+	}
+	err = json.Unmarshal(data, &config)
+	if err != nil {
+		log.Fatal("ошибка в конфиге")
 	}
 
-	bot.Debug = true
+	bot, err := tgbotapi.NewBotAPI(config.Token)
+	if err != nil {
+		log.Panic("token: ", err)
+	}
+
+	bot.Debug = config.Debug
 
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
@@ -26,11 +57,13 @@ func main() {
 	updates := bot.GetUpdatesChan(u)
 
 	for update := range updates {
-		if update.Message != nil { // If we got a message
-			//log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
-			//log.Println(update.Message.Text)
-			//result := reboot(scanDB(update.Message.Text))
-			cmd := exec.Command("/root/rebootLTE.sh", scanDB(update.Message.Text))
+		if update.Message != nil {
+			rtArg, err := scanDB(update.Message.Text, config.DB)
+			if err != nil {
+				continue
+			}
+
+			cmd := exec.Command(config.Sctipt, rtArg)
 			result, err := cmd.Output()
 			if err != nil {
 				fmt.Println(err.Error())
@@ -45,61 +78,26 @@ func main() {
 	}
 }
 
-func scanDB(g string) string {
-	fileDB, err := os.Open("/root/DB")
+func scanDB(g string, DB string) (string, error) {
+	var result error = nil
+	fileDB, err := os.Open(DB)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer fileDB.Close()
 
-	var port []string
+	var rtNumber string
 	scanner := bufio.NewScanner(fileDB)
 	for scanner.Scan() {
+		var port []string
 		port = strings.Split(scanner.Text(), "=")
 		if port[0] == g {
+			rtNumber = port[1]
 			break
 		}
 	}
-	return port[1]
+	if rtNumber == "" {
+		result = errors.New("нет совпадений")
+	}
+	return rtNumber, result
 }
-
-//func reboot(proxy string) string {
-//	key, err := os.ReadFile("/root/.ssh/id_rsa")
-//	//key, err := os.ReadFile("C:\\Users\\dima\\.ssh\\id_rsa")
-//	if err != nil {
-//		log.Fatalf("unable to read private key: %v", err)
-//	}
-//	signer, err := ssh.ParsePrivateKey(key)
-//	if err != nil {
-//		log.Fatalf("unable to parse private key: %v", err)
-//	}
-//
-//	config := &ssh.ClientConfig{
-//		User: "root",
-//		Auth: []ssh.AuthMethod{
-//			// Use the PublicKeys method for remote authentication.
-//			ssh.PublicKeys(signer),
-//		},
-//		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-//	}
-//
-//	client, err := ssh.Dial("tcp", "188.232.207.52:8888", config)
-//	if err != nil {
-//		log.Fatalf("unable to connect: %v", err)
-//	}
-//	defer client.Close()
-//
-//	session, err := client.NewSession()
-//	if err != nil {
-//		log.Fatal("Failed to create session: ", err)
-//	}
-//	defer session.Close()
-//
-//	var b bytes.Buffer
-//	session.Stdout = &b
-//	command := "~/rebootLTE.sh " + proxy
-//	if err := session.Run(command); err != nil {
-//		log.Fatal("Failed to run: " + err.Error())
-//	}
-//	return b.String()
-//}
