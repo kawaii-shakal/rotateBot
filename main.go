@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"log"
 	"os"
@@ -32,6 +31,7 @@ func init() {
 }
 
 func main() {
+
 	//инициализация чтения конфига
 	var config Config
 	data, err := os.ReadFile(configPath)
@@ -48,6 +48,14 @@ func main() {
 		log.Panic("token: ", err)
 	}
 
+	//логирование в файл
+	f, err := os.OpenFile("/var/log/rotateBot.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("error opening file: %v", err)
+	}
+	defer f.Close()
+	log.SetOutput(f)
+
 	bot.Debug = config.Debug
 
 	log.Printf("Authorized on account %s", bot.Self.UserName)
@@ -59,21 +67,22 @@ func main() {
 
 	for update := range updates {
 		if update.Message != nil {
+			log.Println(update.Message)
 			rtArg, err := scanDB(update.Message.Text, config.DB)
 			switch {
+			case false == checkACL(update.Message.From.ID, config.UserACL):
+				log.Println("не авторизован")
+				continue
 			case err != nil:
 				log.Println("нет такого порта")
 				err = nil
-				continue
-			case false == checkACL(update.Message.From.ID, config.UserACL):
-				log.Println("не авторизован")
 				continue
 			}
 
 			cmd := exec.Command(config.Script, rtArg)
 			result, err := cmd.Output()
 			if err != nil {
-				fmt.Println(err.Error())
+				log.Println(err.Error())
 				return
 			}
 
@@ -88,7 +97,7 @@ func checkACL(i int64, users []int64) bool {
 	result := false
 	for _, a := range users {
 		if a == i {
-			log.Println("совпадение с id: ", i)
+			//log.Println("совпадение с id: ", i)
 			result = true
 		}
 	}
