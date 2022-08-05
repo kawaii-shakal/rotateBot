@@ -1,0 +1,16 @@
+[Unit]
+Description=tg bot for rotating LTE proxy
+After=network.target
+
+[Service]
+OOMScoreAdjust=-100
+ExecStart=/usr/local/bin/rotateBot &
+StandardOutput=null
+ExecStop=/bin/kill -SIGTERM $MAINPID
+PIDFile=/run/rotateBot.pid
+Type=simple
+Restart=always
+TimeoutSec=300
+
+[Install]
+WantedBy=multi-user.target
