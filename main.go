@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -30,10 +32,7 @@ func init() {
 	flag.Parse()
 }
 
-func main() {
-
-	//инициализация чтения конфига
-	var config Config
+func readConfig(path string, config *Config) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		log.Fatal("невозможно прочитать конфиг")
@@ -42,6 +41,13 @@ func main() {
 	if err != nil {
 		log.Fatal("ошибка в конфиге")
 	}
+}
+
+func main() {
+
+	//инициализация чтения конфига
+	var config Config
+	readConfig(configPath, &config)
 
 	bot, err := tgbotapi.NewBotAPI(config.Token)
 	if err != nil {
@@ -68,31 +74,47 @@ func main() {
 	for update := range updates {
 		if update.Message != nil {
 			log.Println(update.Message)
-			rtArg, err := scanDB(update.Message.Text, config.DB)
-			switch {
-			case false == checkACL(update.Message.From.ID, config.UserACL):
+			if false == checkACL(update.Message.From.ID, config.UserACL) {
 				log.Println("не авторизован")
 				continue
-			case err != nil:
-				log.Println("нет такого порта")
-				err = nil
-				continue
 			}
 
-			cmd := exec.Command(config.Script, rtArg)
-			result, err := cmd.Output()
-			if err != nil {
-				log.Println(err.Error())
-				return
+			var msg tgbotapi.MessageConfig
+			var result []byte
+
+			var re = regexp.MustCompile(`(?m)^[0-9]{4}-[0-9]{4}$`)
+			switch {
+			case strings.Contains(update.Message.Text, "-") && re.MatchString(update.Message.Text):
+				//todo: цикл который будет в потоках запускать скрипт
+				fmt.Println("placeholder ", update.Message.Text)
+			case len(update.Message.Text) == 4:
+				rt, err := scanDB(update.Message.Text, config.DB)
+				if err != nil {
+					//todo: запись переменной ошибки в отправляемое сообщение
+					fmt.Println("placeholder ")
+				}
+				result = reboot(config.Script, rt)
+			case update.Message.Text == "all":
+				//todo: парисинг всех роутеров из базы и заебашивание цикла
 			}
 
-			msg := tgbotapi.NewMessage(update.Message.Chat.ID, string(result))
+			msg = tgbotapi.NewMessage(update.Message.Chat.ID, string(result))
 			msg.ReplyToMessageID = update.Message.MessageID
-
 			bot.Send(msg)
 		}
 	}
 }
+
+func reboot(script string, rtArg string) []byte {
+	cmd := exec.Command(script, rtArg)
+	result, err := cmd.Output()
+	if err != nil {
+		log.Println(err.Error())
+		return result
+	}
+	return result
+}
+
 func checkACL(i int64, users []int64) bool {
 	result := false
 	for _, a := range users {
