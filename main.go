@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -32,7 +33,7 @@ func init() {
 	flag.Parse()
 }
 
-func readConfig(path string, config *Config) {
+func readConfig(config *Config) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		log.Fatal("невозможно прочитать конфиг")
@@ -44,14 +45,14 @@ func readConfig(path string, config *Config) {
 }
 
 func main() {
-
 	//инициализация чтения конфига
 	var config Config
-	readConfig(configPath, &config)
+	readConfig(&config)
 
 	bot, err := tgbotapi.NewBotAPI(config.Token)
 	if err != nil {
 		log.Panic("token: ", err)
+
 	}
 
 	//логирование в файл
@@ -79,30 +80,84 @@ func main() {
 				continue
 			}
 
-			var msg tgbotapi.MessageConfig
-			var result []byte
+			var (
+				msg        tgbotapi.MessageConfig
+				result     string
+				multiPort  = regexp.MustCompile(`(?m)^[0-9]{4}-[0-9]{4}$`)
+				singlePort = regexp.MustCompile(`(?m)^[0-9]{4}$`)
+				portDB     = createDB(config.DB)
+			)
 
-			var re = regexp.MustCompile(`(?m)^[0-9]{4}-[0-9]{4}$`)
 			switch {
-			case strings.Contains(update.Message.Text, "-") && re.MatchString(update.Message.Text):
-				//todo: цикл который будет в потоках запускать скрипт
+			case multiPort.MatchString(update.Message.Text):
 				fmt.Println("placeholder ", update.Message.Text)
-			case len(update.Message.Text) == 4:
-				rt, err := scanDB(update.Message.Text, config.DB)
+				firstPort, secondPort, err := getMultiPort(update.Message.Text, portDB)
 				if err != nil {
-					//todo: запись переменной ошибки в отправляемое сообщение
-					fmt.Println("placeholder ")
+					result = fmt.Sprintf("%s", err)
+					err = nil
 				}
-				result = reboot(config.Script, rt)
+				if firstPort < secondPort {
+					for i := firstPort; i <= secondPort; i++ {
+
+					}
+				} else {
+					for i := secondPort; i <= firstPort; i++ {
+
+					}
+				}
+
+			case singlePort.MatchString(update.Message.Text):
+				if rt, ok := portDB[update.Message.Text]; ok {
+					result = string(reboot(config.Script, string(rt)))
+				} else {
+					result = "такого порта не найдено"
+				}
+
 			case update.Message.Text == "all":
 				//todo: парисинг всех роутеров из базы и заебашивание цикла
 			}
 
-			msg = tgbotapi.NewMessage(update.Message.Chat.ID, string(result))
+			msg = tgbotapi.NewMessage(update.Message.Chat.ID, result)
 			msg.ReplyToMessageID = update.Message.MessageID
 			bot.Send(msg)
 		}
 	}
+}
+
+func getMultiPort(x string, DB map[string]int) (int, int, error) {
+	var (
+		first  int
+		second int
+		err1   error = nil
+		err2   error = nil
+		err    error = nil
+	)
+	port := strings.Split(x, "-")
+
+	if _, ok := DB[port[0]]; ok {
+		first = DB[port[0]]
+	} else {
+		err1 = errors.New("нет порта: " + port[0])
+	}
+	if _, ok := DB[port[1]]; ok {
+		second = DB[port[1]]
+	} else {
+		err2 = errors.New("нет порта: " + port[1])
+	}
+
+	switch {
+	case (err1 != nil) && (err2 != nil):
+		err = errors.New("портов " + port[0] + " и " + port[1] + " не существует")
+		break
+	case (err1 != nil) && (err2 == nil):
+		err = err1
+		break
+	case (err1 == nil) && (err2 != nil):
+		err = err2
+		break
+	}
+	return first, second, err
+
 }
 
 func reboot(script string, rtArg string) []byte {
@@ -126,20 +181,42 @@ func checkACL(i int64, users []int64) bool {
 	return result
 }
 
-func scanDB(g string, DB string) (string, error) {
-	var result error = nil
+func createDB(DB string) map[string]int {
+
+	portsDB := map[string]int{}
+
 	fileDB, err := os.Open(DB)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
 	}
 	defer fileDB.Close()
 
-	var rtNumber string
+	scanner := bufio.NewScanner(fileDB)
+	for scanner.Scan() {
+		port := strings.Split(scanner.Text(), "=")
+		portsDB[port[0]], _ = strconv.Atoi(port[1])
+	}
+	return portsDB
+}
+
+func _scanDB(f string, DB string) (string, error) {
+	var (
+		result   error = nil
+		rtNumber string
+	)
+
+	fileDB, err := os.Open(DB)
+	if err != nil {
+		log.Println(err)
+		return "", err
+	}
+	defer fileDB.Close()
+
 	scanner := bufio.NewScanner(fileDB)
 	for scanner.Scan() {
 		var port []string
 		port = strings.Split(scanner.Text(), "=")
-		if port[0] == g {
+		if port[0] == f {
 			rtNumber = port[1]
 			break
 		}
