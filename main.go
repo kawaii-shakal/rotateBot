@@ -56,7 +56,7 @@ func main() {
 	}
 
 	//логирование в файл
-	f, err := os.OpenFile("/var/log/rotateBot.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	f, err := os.OpenFile("/var/log/rotateBot.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		log.Fatalf("error opening file: %v", err)
 	}
@@ -90,36 +90,49 @@ func main() {
 
 			switch {
 			case multiPort.MatchString(update.Message.Text):
-				fmt.Println("placeholder ", update.Message.Text)
 				firstPort, secondPort, err := getMultiPort(update.Message.Text, portDB)
 				if err != nil {
 					result = fmt.Sprintf("%s", err)
 					err = nil
+					break
 				}
+
 				if firstPort < secondPort {
-					for i := firstPort; i <= secondPort; i++ {
-
-					}
+					go func() {
+						for i := firstPort; i <= secondPort; i++ {
+							reboot(config.Script, i)
+						}
+					}()
 				} else {
-					for i := secondPort; i <= firstPort; i++ {
-
-					}
+					go func() {
+						for i := secondPort; i <= firstPort; i++ {
+							reboot(config.Script, i)
+						}
+					}()
 				}
+				result = "send in rotation"
 
 			case singlePort.MatchString(update.Message.Text):
 				if rt, ok := portDB[update.Message.Text]; ok {
-					result = string(reboot(config.Script, string(rt)))
+					result = reboot(config.Script, rt)
+					break
 				} else {
 					result = "такого порта не найдено"
+					break
 				}
 
 			case update.Message.Text == "all":
 				//todo: парисинг всех роутеров из базы и заебашивание цикла
+				log.Println("placeholder")
+				break
 			}
 
 			msg = tgbotapi.NewMessage(update.Message.Chat.ID, result)
 			msg.ReplyToMessageID = update.Message.MessageID
-			bot.Send(msg)
+			_, err := bot.Send(msg)
+			if err != nil {
+				log.Println(err)
+			}
 		}
 	}
 }
@@ -156,18 +169,19 @@ func getMultiPort(x string, DB map[string]int) (int, int, error) {
 		err = err2
 		break
 	}
-	return first, second, err
 
+	return first, second, err
 }
 
-func reboot(script string, rtArg string) []byte {
-	cmd := exec.Command(script, rtArg)
+func reboot(script string, rtArg int) string {
+	cmd := exec.Command(script, strconv.Itoa(rtArg))
 	result, err := cmd.Output()
 	if err != nil {
 		log.Println(err.Error())
-		return result
+		return string(result)
 	}
-	return result
+	log.Println(result)
+	return string(result)
 }
 
 func checkACL(i int64, users []int64) bool {
@@ -199,7 +213,7 @@ func createDB(DB string) map[string]int {
 	return portsDB
 }
 
-func _scanDB(f string, DB string) (string, error) {
+func _(f string, DB string) (string, error) {
 	var (
 		result   error = nil
 		rtNumber string
