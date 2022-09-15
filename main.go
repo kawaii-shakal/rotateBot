@@ -86,35 +86,42 @@ func main() {
 				multiPort  = regexp.MustCompile(`(?m)^[0-9]{4}-[0-9]{4}$`)
 				singlePort = regexp.MustCompile(`(?m)^[0-9]{4}$`)
 				portDB     = createDB(config.DB)
+				messages   = make(chan string)
 			)
 
 			switch {
 			case multiPort.MatchString(update.Message.Text):
-				firstPort, secondPort, err := getMultiPort(update.Message.Text, portDB)
+				var manyResults []string
+				port := strings.Split(update.Message.Text, "-")
+				firstIp, secondIp, err := getMultiPort(update.Message.Text, portDB)
 				if err != nil {
 					result = fmt.Sprintf("%s", err)
 					err = nil
 					break
 				}
 
-				if firstPort < secondPort {
-					go func() {
-						for i := firstPort; i <= secondPort; i++ {
-							reboot(config.Script, i)
-						}
-					}()
+				if firstIp < secondIp {
+					h, _ := strconv.Atoi(port[0])
+					for i := firstIp; i <= secondIp; i++ {
+						go reboot(config.Script, i, messages)
+						h++
+						manyResults = append(manyResults, <-messages+strconv.Itoa(h))
+					}
 				} else {
-					go func() {
-						for i := secondPort; i <= firstPort; i++ {
-							reboot(config.Script, i)
-						}
-					}()
-				}
-				result = "send in rotation"
+					h, _ := strconv.Atoi(port[1])
+					for i := secondIp; i <= firstIp; i++ {
+						go reboot(config.Script, i, messages)
+						h++
 
+						manyResults = append(manyResults, <-messages+strconv.Itoa(h))
+					}
+				}
+				result = fmt.Sprintf("%s", manyResults)
+				fmt.Println(manyResults)
 			case singlePort.MatchString(update.Message.Text):
 				if rt, ok := portDB[update.Message.Text]; ok {
-					result = reboot(config.Script, rt)
+					go reboot(config.Script, rt, messages)
+					result = <-messages + update.Message.Text
 					break
 				} else {
 					result = "такого порта не найдено"
@@ -173,22 +180,20 @@ func getMultiPort(x string, DB map[string]int) (int, int, error) {
 	return first, second, err
 }
 
-func reboot(script string, rtArg int) string {
-	cmd := exec.Command(script, strconv.Itoa(rtArg))
-	result, err := cmd.Output()
+func reboot(script string, rtArg int, messages chan<- string) {
+	result, err := exec.Command(script, strconv.Itoa(rtArg)).Output()
 	if err != nil {
-		log.Println(err.Error())
-		return string(result)
+		log.Println(err)
+		messages <- fmt.Sprintf("%s", err)
 	}
-	log.Println(result)
-	return string(result)
+	fmt.Printf("%s", result)
+	messages <- string(result)
 }
 
 func checkACL(i int64, users []int64) bool {
 	result := false
 	for _, a := range users {
 		if a == i {
-			//log.Println("совпадение с id: ", i)
 			result = true
 		}
 	}
@@ -211,32 +216,4 @@ func createDB(DB string) map[string]int {
 		portsDB[port[0]], _ = strconv.Atoi(port[1])
 	}
 	return portsDB
-}
-
-func _(f string, DB string) (string, error) {
-	var (
-		result   error = nil
-		rtNumber string
-	)
-
-	fileDB, err := os.Open(DB)
-	if err != nil {
-		log.Println(err)
-		return "", err
-	}
-	defer fileDB.Close()
-
-	scanner := bufio.NewScanner(fileDB)
-	for scanner.Scan() {
-		var port []string
-		port = strings.Split(scanner.Text(), "=")
-		if port[0] == f {
-			rtNumber = port[1]
-			break
-		}
-	}
-	if rtNumber == "" {
-		result = errors.New("нет совпадений")
-	}
-	return rtNumber, result
 }
