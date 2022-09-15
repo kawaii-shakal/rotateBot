@@ -104,16 +104,15 @@ func main() {
 					h, _ := strconv.Atoi(port[0])
 					for i := firstIp; i <= secondIp; i++ {
 						go reboot(config.Script, i, messages)
-						h++
 						manyResults = append(manyResults, <-messages+strconv.Itoa(h))
+						h++
 					}
 				} else {
 					h, _ := strconv.Atoi(port[1])
 					for i := secondIp; i <= firstIp; i++ {
 						go reboot(config.Script, i, messages)
-						h++
-
 						manyResults = append(manyResults, <-messages+strconv.Itoa(h))
+						h++
 					}
 				}
 				result = fmt.Sprintf("%s", manyResults)
