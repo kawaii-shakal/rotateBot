@@ -31,6 +31,8 @@ jobs:
     - name: Upload Go test results
       uses: actions/upload-artifact@v3
       with:
-          name: Go-results
+        name: rotate
+        path: rotate
+          
 #     - name: Test
 #       run: go test -v ./...
